@@ -150,7 +150,8 @@ gridExtra::grid.arrange(
 )
 # NB: color scale not exactly as in Chen et al, but results seem very close...
 ```
-
+Zum Vergleich mein Ergebnis:
+![recreation of Figure 3 using my own code](fig3.png)
 Check Figure 5: 
 ```{r, vis-hsm-fig5, fig.width = 8, fig.height = 4, out.width = ".6\\textwidth"}
 set.seed(187471431)
@@ -197,6 +198,10 @@ fig5 +
     aes(x = z1, y = z2), color = rgb(1, 0, 0, .5)
   )
 ```
+Mein Ergebnis hier:
+![recreation of Figure 5 using my own code](fig5.png)
+Hier noch eine 3-dimensionale Visualisierung mit plotly:
+![3-dimensional half space depth](3d.png)
 
 *Hinweis:* Wenn Ihnen das Paper und/oder die obige Erklärung trotz eigener Anstrengung nicht einleuchten sollten und sie deswegen keinen Einstieg finden, kommen Sie bitte frühzeitig
 auf mich zu.
