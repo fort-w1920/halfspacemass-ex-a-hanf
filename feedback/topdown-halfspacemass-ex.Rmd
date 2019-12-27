@@ -1,0 +1,202 @@
+## Tiefe? Masse? Wasse'dasse?
+
+Für univariate Daten sind Ränge bzw. Quantile ein robustes (im Sinne von: ausreißerunempfindliches) Maß wie zentral oder randständig eine Beobachtung ist -- der Median
+zum Beispiel ist in gewissem Sinne eben der "Mittelpunkt" einer Verteilung. 
+Für Daten mit mehr als einer Dimension hätte man gerne auch eine Möglichkeit die Zentralität einer Beobachtung in einer robusten, skalaren Maßzahl auszudrücken um zum Beispiel einen "multivariaten Median", d.h. die "zentralste" Beobachtung, zu bestimmen oder um multivariate Ausreißer zu entdecken.
+
+Für multivariate Daten nennt man eine solche Maßzahl dann "Datentiefe" (*data depth*). Wie solche *depth measures* konstruiert werden können ist ein mehr oder weniger aktives Forschungsgebiet -- einige der bekanntesten sind in der schönen Webapp `datadepth` [(Link zur Website)](http://charliemeyer.co/datadepth/) von Charlie Meyer implementiert.  
+Lesen Sie sich dort die kurze Erklärung zur *halfspace*-Tiefe durch^["Depth: Halfspace" auswählen und auf "Info" klicken. Wenn Sie mit der Visualisierung bißchen rumspielen -- was ich sehr empfehlen würde -- beachten Sie dass der rot hervorgehobene Halfspace-Median nicht ganz stimmt: der "Half-Space Median" ist üblicherweise eine ganze Region bzw. Menge von Punkten, nicht ein einzelner Punkt...]. Diese Datentiefe $d_{hs}(x; \{z_1, \dots, z_n\})$ eines Punktes $x \in \mathbb R^p$ bezüglich einer Menge von Daten $\{z_1, \dots, z_n\},\, z_i \in \mathbb R^p$ wird auch *Tukey depth* genannt und ist definiert als 
+$$d_{hs}(x; \{z_1, \dots, z_n\}) = \min_{H \in \mathcal H(x)}\left(|\{i: z_i \in H\}|\right)$$
+
+wobei $\mathcal H(x)$ die Menge aller Halbräume, die $x$ enthalten, bezeichnet und $H$ einen Halbraum aus dieser Menge. Somit ist $d_{hs}(x; \{z_1, \dots, z_n\})$ die Mächtigkeit der kleinsten Menge von Datenpunkten $z_i$, die im selben Halbraum wie $x$ liegen.
+
+Ein Halbraum dessen Grenze durch einen Punkt $x$ verläuft kann auch definiert werden über seinen Normalenvektor $p$, d.h. den Vektor der senkrecht zur Grenze des Halbraums steht. Dann gilt für alle Punkte $z$ auf der selben Seite dieser Grenzgeraden dass das Skalarprodukt $p'(z - x)$ das selbe Vorzeichen hat^[wichtig für die Implementierung später: machen Sie sich klar dass das Vorzeichen von $p'(z - x)$ angibt auf welcher Seite der Grenzgerade $z$ liegt und der Betrag von $p'(z - x)$ angibt wie weit weg der Punkt $z$ von der Grenzgerade liegt - Stichwort: [Projektion eines Punktes auf einen Vektor](https://en.wikipedia.org/wiki/Scalar_projection#Definition_in_terms_of_a_and_b)].  
+Einfacher Sonderfall für die Intuition: Sei $p_0 = (1, 0)^T$ und $x_0 = (0, 0)^T$, also die Grenzgerade die vertikale Achse. Sei $z = (z_1, z_2)^T$.  Dann ist $p_0'z$ eben einfach $z_1$ und alle Punkte mit positivem $z_1$ liegen rechts der von $x_0$ und $p_0$ definierten Grenzgerade und alle Punkte mit negativem $z_1$ links von ihr (... duh). Allgemeiner gilt natürlich für jeden beliebigen Punkt $x = (x_1, x_2)$ dass alle Punkte $z$ mit $z_1 > x_1$ rechts von der durch $x$ und  $p_0$ definierten Grenzgerade liegen und alle Punkte $z$ mit $z_1 < x_1$ links von ihr.
+
+Veranschaulichung:
+ ```{r, fig.height=5, fig.width=5, echo = FALSE, fig.cap="$x = (0, 0)^T$, Halbraum definiert durch $p = (-1, 1)^T$ (Pfeil), Punkte $z$ mit $p'z > 0$ in rot, Punkte mit $p'z \\leq 0$ in blau. Punkte auf der Orthogonalen zu $p$, also auf der Grenze der Halbräume, haben natürlich $p'z = 0$"}
+set.seed(12111)
+points <- rbind(runif(200, -2, 2), runif(200, -2, 2))
+plot(NA, NA, xlab = expression(z[i1]), ylab = expression(z[i2]), asp = 1,
+  xlim = c(-2, 2), ylim = c(-2, 2))
+p1 <- c(-1, 1)
+abline(coef = c(0, 1), lty = 3)
+arrows(x0 = 0, y0 = 0, x1 = p1[1], y1 = p1[2])
+points(t(points), pch = 19, col =
+    scales::alpha(c("blue", "red")[1 + (p1 %*% points >= 0)], .3))
+```
+
+Damit können wir die obige Definition also umschreiben als^[... und natürlich ist es hier beliebig die Menge der Punkte mit $p'z_i \geq 0$ statt $p'z_i \leq 0$ zu betrachten: Da wir über alle $p$ minimieren betrachten wir damit ja zu jedem $p$ auch den "umgedrehten" Halbraum mit Normalenvektor $\tilde p = -p$]:
+$$d_{hs}(x; \{z_1, \dots, z_n\}) = \min_{p \neq 0} \left(|\{i: p'(z_i - x) \geq 0\}|\right)$$
+
+Zum eigentlichen Thema:
+
+Für die Halbraum**tiefe** $d_{hs}$ gibt es schon jede Menge Implementationen in `R`. Wir wollen jetzt ein eng verwandtes Datentiefe-Maß implementieren, das unter dem Namen 
+*halfspace mass* in
+
+> Chen, B., Ting, K.M., Washio, T. et al. (2015)  
+> *Half-space mass: a maximally robust and efficient data depth method*,  
+> Machine Learning, **100**(2):677--699 [[pdf]](http://scheipl.userweb.mwn.de//downloads/fortprog/ChenEtAl-HalfspaceMass-MachLearn2015.pdf)
+
+vorgeschlagen wurde -- statt der *minimalen* Anzahl an Datenpunkten 
+$\min_{p \neq 0} \left(|\{i: p'(z_i - x) \geq 0\}|\right)$ über welches die *halfspace depth* definiert ist, ist die ***halfspace mass*** $d_{hm}(x; \{z_1, \dots, z_n\})$ von $x$ bezüglich $\{z_1, \dots, z_n\}$ der *Erwartungswert* der Anzahl Datenpunkte $z_i$ die im selben Halbraum wie $x$ liegen:
+$$d_{hm}(x; \{z_1, \dots, z_n\}) = E_{\mathcal H(x)}\left(|\{i: z_i \in H \wedge H \in \mathcal H(x)\}|\right),$$
+wobei $\mathcal H(x)$ die Menge aller Halbräume, die $x$ enthalten bezeichnet, und $H$ ein Halbraum aus dieser Menge ist.  
+Zur Bestimmung dieses Erwartungswerts können wir ein relativ einfaches Monte Carlo Verfahren benutzen -- grob gesagt: wir ziehen zufällig eine große Menge an Grenzgeraden die den Raum jeweils in 2 Halbräume teilen, und bilden dann den
+Mittelwert der Anteile an Punkten aus $\{z_1, ..., z_n\}$ die bezüglich dieser Grenzgeraden jeweils auf der selben Seite wie $x$ liegen.
+
+a) Lesen & verstehen Sie den relevanten Abschnitt 2 aus dem Artikel von Chen et al. und implementieren Sie Algorithmus 1 in einer Funktion `train_depth(data, n_halfspace, subsample, scope, seed)`:
+
+- `data` enthält die Trainingsdaten ($z_i, i = 1, \dots, n$, in der obigen Notation)
+- `n_halfspace` ist die Anzahl gezogener Halbräume (Notation im Paper: $t$)
+- `subsample` ist der Anteil der Daten der zur Berechnung für jeden Halbraum zufällig gezogen werden soll (im Paper: $= \frac{\psi}{|D|}$, *default* sollte 1 sein)
+- `scope` ist im Paper $\lambda$ (*default* sollte 1 sein) 
+- `seed` für den RNG. 
+
+Implementieren Sie Algorithmus 2 als `evaluate_depth(data, halfspaces)`. `evaluate_depth()` berechnet für jeden Punkt $x$ in `data` die *halfspace mass* auf Basis der von `train_depth` zurückgegeben `halfspaces`, also
+
+- `data` enthält die Test- bzw. Validierungsdaten ($x$, in der obigen Notation), deren Tiefe bezüglich der im zweiten Argument definierten Halbräume bestimmt werden soll. 
+- `halfspaces` ist das von `train_depth` zurückgelieferte Objekt. 
+Wie Sie das genau strukturieren bleibt Ihnen überlassen (und will wohlüberlegt sein).
+
+Ihre Funktionen sollen auch für höherdimensionale $x, z_i \in \mathbb R^d$ mit beliebigem $d > 2$ funktionieren. Das macht vor allem das korrekte zufällige Ziehen der Halbräume evtl. etwas schwieriger.
+
+
+b) Erweitern Sie Ihre Funktionen aus a) so, dass Sie optional statt der *halfspace mass* von Chen et al. auch eine Monte-Carlo approximative *Tukey halfspace depth* berechnen können. Überprüfen Sie die Korrektheit Ihrer Implementation und die Güte dieser Approximation an einigen einfachen 2D-Datenbeispielen mit Hilfe der Funktion `depth` aus dem Paket [`{depth}`](https://rdrr.io/cran/depth/man/depth.html), benutzen Sie dafür (auch) `{testthat}`-Tests.  
+    *Hinweis:* Für die Implementation sollten Sie eigentlich nur (Subroutinen von) `evaluate_depth()` modifizieren müssen...
+    
+c) Überprüfen Sie ihre Implementation indem Sie (mindestens) Figure 3 und das linke Panel aus der zweiten Zeile in Fig 5 aus dem Paper grob reproduzieren (s.u.). Überlegen Sie sich zusätzlich geeignete Validierungbeispiele für mindestens 3-dimensionale Daten. Schreiben Sie eine entsprechende Testbatterie von `testthat`-Tests.  
+    *Hinweis:* Benutzen Sie jeweils `n_halfspace`$>2000$ für Figure 3. Um die *Tukey halfspace depth* für Figure 3 korrekt darzustellen brauchen Sie `scope > 1`. Den untenstehende Beispielcode können Sie dafür benutzen oder anpassen.
+
+
+Gehen Sie bei der Implementierung unbedingt nach den in der Vorlesung besprochenen Prinzipien für rationale Softwareentwicklung vor:  *"First, understand the problem. Then, write the code"*, Top-Down-Design, 
+*Don't repeat yourself*. Denken Sie an vollständige Dokumentation und *input checks*, schreiben Sie
+sinnvolle Kommentare an komplizierte Stellen und überprüfen Sie während der Entwicklung sorgfältig die Teilschritte ihrer Implementation mit (einfachen) Tests deren korrektes Ergebnis sie sicher kennen.
+
+Eine erfolgreiche Lösung sollte dann in etwa folgende Ergebnisse liefern:
+```{r, hsm-def, code = readLines("topdown-halfspacemass-def.R"), echo = FALSE}
+```
+
+```{r, vis-hsm-prep}
+library(ggplot2)
+theme_set(theme_minimal())
+
+# visualize half-space depth/mass values for 2D-data on a grid of points
+# if no grid is provided, a grid over min/max +/- .2 * range of data is created.
+#   data: a 2d data.frame with columns z1 and z2
+#   points: add points in data to plot?
+#   metric: argument for evaluate_depth
+plot_depth <- function(halfspaces, data, grid = NULL, points = TRUE,
+                       gridlength = 70, metric = "mass") {
+  if (is.null(grid)) {
+    range_1 <- range(data$z1)
+    range_2 <- range(data$z2)
+    grid <- expand.grid(
+      z1 = seq(range_1[1] - .2 * diff(range_1), 
+               range_1[2] + .2 * diff(range_1),
+        length = gridlength
+      ),
+      z2 = seq(range_2[1] - .2 * diff(range_2), 
+               range_2[2] + .2 * diff(range_2),
+        length = gridlength
+      )
+    )
+  }
+  grid_depth <- evaluate_depth(
+    data = as.matrix(grid), 
+    halfspaces = halfspaces, 
+    metric = metric)
+  grid_halfspaces <- cbind(grid, depth = grid_depth)
+  # use colors as in Chen et al.:
+  spectralcolors <- c(
+    "darkblue", "blue", "cyan", "lightgreen",
+    "yellow", "orange", "red", "darkred"
+  )
+  p <- ggplot(grid_halfspaces, aes(x = z1, y = z2)) +
+    geom_tile(aes(fill = depth, colour = depth)) +
+    scale_fill_gradientn(metric, colors = spectralcolors) +
+    scale_colour_gradientn(metric, colors = spectralcolors)  
+    
+  if (points & !is.null(data)) {
+    p <- p +
+      geom_point(data = data, 
+                 aes(x = z1, y = z2), 
+                 colour = rgb(1, 1, 1, .8))
+  }
+  p
+}
+```
+Check Figure 3:
+```{r, vis-hsm-fig3, fig.width = 8, fig.height = 4, out.width = ".6\\textwidth"}
+library(gridExtra)
+data_fig3 <- data.frame(z1 = c(-2, -.5, .5, 2), z2 = 0)
+grid_fig3 <- expand.grid(z1 = seq(-3, 3, l = 51), 
+                         z2 = seq(-3, 3, l = 51))
+
+depth_fig3 <- train_depth(data_fig3, n_halfspace = 1e4, 
+                       scope = 1, seed = 4163)
+# need scope > 1 for reliable halfspace _depth_ approximation:
+depth_fig3_scope15 <- train_depth(data_fig3,
+                               n_halfspace = 1e3, scope = 1.5,
+                               seed = 4163)
+gridExtra::grid.arrange(
+  plot_depth(depth_fig3_scope15,
+             data = data_fig3, grid = grid_fig3,
+             metric = "depth") +
+    ggtitle("Tukey Halfspace Depth"),
+  plot_depth(depth_fig3, data = data_fig3, grid = grid_fig3) +
+    ggtitle("Halfspace Mass (Chen et al.)"),
+  nrow = 1
+)
+# NB: color scale not exactly as in Chen et al, but results seem very close...
+```
+
+Check Figure 5: 
+```{r, vis-hsm-fig5, fig.width = 8, fig.height = 4, out.width = ".6\\textwidth"}
+set.seed(187471431)
+# 2D standard Normal:
+cluster <- data.frame(
+  z1 = rnorm(50) / 2, 
+  z2 = rnorm(50) / 2,
+  group = "cluster"
+)
+# polar coordinates: points with distance 3 to 5 from the origin, at 90° - 270°:
+left_anomalies <- data.frame(
+  angle = runif(10, pi / 2, 3 * pi / 2),
+  length = runif(10, 3, 5)
+)
+# convert to cartesian coords
+left_anomalies <- with(left_anomalies, data.frame(
+  z1 = length * cos(angle),
+  z2 = length * sin(angle), 
+  group = "anomaly"
+))
+# ~ N_2(\mu = (6,0), \Sigma = I_2)
+right_anomalies <- data.frame(
+  z1 = rnorm(20) / 5 + 6, 
+  z2 = rnorm(20) / 5,
+  group = "anomaly"
+)
+data_fig5 <- rbind(cluster, 
+                   left_anomalies, 
+                   right_anomalies)
+
+hs_fig5 <- train_depth(data_fig5[, 1:2],
+  n_halfspace = 1e4, subsample = .5,
+  seed = 4165
+)
+fig5 <- plot_depth(hs_fig5, data = data_fig5[, 1:2], points = FALSE)
+# can't assign two colour scales to one plot, so plot 2 groups separately:
+fig5 +
+  geom_point(
+    data = subset(data_fig5, group == "cluster"),
+    aes(x = z1, y = z2), color = rgb(0, 0, 1, .5)
+  ) +
+  geom_point(
+    data = subset(data_fig5, group == "anomaly"),
+    aes(x = z1, y = z2), color = rgb(1, 0, 0, .5)
+  )
+```
+
+*Hinweis:* Wenn Ihnen das Paper und/oder die obige Erklärung trotz eigener Anstrengung nicht einleuchten sollten und sie deswegen keinen Einstieg finden, kommen Sie bitte frühzeitig
+auf mich zu.
