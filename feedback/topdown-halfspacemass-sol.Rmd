@@ -1,0 +1,96 @@
+```{r, child = "topdown-halfspacemass-ex.Rmd"}
+```
+
+----------------------------------------------------
+
+### Lösung:
+
+Der untenstehende Code implementiert das gewünschte:
+```{r, hsm-def2, code = readLines("topdown-halfspacemass-def.R")}
+```
+
+Tests für `metric = "depth"` zB so:
+```{r, hsm-depth-test, echo=FALSE, code = readLines("test-halfspacemass-depth.R")}
+```
+
+-------------------------------------
+
+Zusätzliche Anwendungsbeispiele:
+```{r, vis-hsm-prep, echo = FALSE}
+```
+
+Beispiel in 3D -- NV mit starker Korrelation + 10% Ausreißer:
+```{r, vis-hsm-3d, fig.width = 8, fig.height = 6, out.width = ".6\\textwidth"}
+set.seed(187471431)
+n <- 500
+cov_3d <- matrix(.9, 3, 3)
+diag(cov_3d) <- rep(1, 3)
+cluster_3d <- as.data.frame(mvtnorm::rmvnorm(n = n, sigma = cov_3d))
+colnames(cluster_3d) <- paste0("z", 1:3)
+anomalies_3d <- data.frame(
+  angle1 = runif(n / 10, 0, 2 * pi),
+  angle2 = runif(n / 10, 0, 2 * pi), length = runif(n / 10, 5, 7)
+)
+anomalies_3d <- with(
+  anomalies_3d,
+  data.frame(
+    z1 = length * cos(angle1) * sin(angle2),
+    z2 = length * sin(angle1) * sin(angle2), z3 = length * cos(angle2)
+  )
+)
+data_3d <- rbind(cluster_3d, anomalies_3d)
+
+hs_3d <- train_depth(data_3d, n_halfspace = 3e3, subsample = .5, seed = 34)
+data_3d$`Halfspace Mass` <- evaluate_depth(data_3d[, 1:3], hs_3d)
+data_3d$`Tukey Halfspace Depth` <- evaluate_depth(data_3d[, 1:3], hs_3d,
+  metric = "depth"
+)
+data_3d$`Neg. Mahalanobis` <- -1 * mahalanobis(data_3d[, 1:3],
+  center = TRUE,
+  cov = cov(data_3d[, 1:3])
+)
+data_3d$Group <- c(rep("cluster", n), rep("anomaly", n / 10))
+
+# Data:
+pairs(data_3d[, 1:3],
+  col = c(rgb(0, 0, 0, .5), rgb(1, 0, 0, .2))[(data_3d$Group == "cluster") + 1]
+)
+
+# Depth measure distributions conditional on group:
+metrics <- tidyr::gather(data_3d[, -(1:3)], -Group,
+  key = "metric",
+  value = "Depth measure"
+)
+library(ggplot2)
+
+ggplot(metrics, aes(x = Group, y = `Depth measure`)) +
+  geom_boxplot() + facet_wrap(~metric, scales = "free")
+```
+
+Konkave Verteilung -- HM mit `scope`$= 1$ sieht eher merkwürdig aus:
+```{r, vis-hsm-conc, fig.width = 9, fig.height = 3, out.width = ".8\\textwidth"}
+n <- 100
+angle <- seq(0, pi, l = n)
+data_concave <- data.frame(
+  z1 = cos(angle) + rnorm(n) / 10,
+  z2 = sin(angle) + rnorm(n) / 10
+)
+hs_concave_scope1 <- train_depth(data_concave,
+  n_halfspace = 1e4, scope = 1,
+  seed = 2072443
+)
+hs_concave_scope2 <- train_depth(data_concave,
+  n_halfspace = 1e4, scope = 2,
+  seed = 2072443
+)
+gridExtra::grid.arrange(
+  plot_depth(hs_concave_scope2, data = data_concave, metric = "depth") +
+    ggtitle("Halfspace (Tukey) depth") + guides(fill = FALSE),
+  plot_depth(hs_concave_scope1, data = data_concave) +
+    ggtitle("HS Mass, scope = 1") + guides(fill = FALSE),
+  # !!! not making sense, is it...?
+  plot_depth(hs_concave_scope2, data = data_concave) +
+    ggtitle("HS Mass, scope = 2") + guides(fill = FALSE),
+  nrow = 1
+)
+```
